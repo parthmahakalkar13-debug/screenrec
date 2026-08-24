@@ -14,11 +14,9 @@
       --surface: rgba(18, 26, 43, 0.75);
       --surface-border: rgba(255, 255, 255, 0.08);
       --primary: #4f46e5;
-      --primary-glow: rgba(79, 70, 229, 0.35);
       --accent: #06b6d4;
       --success: #10b981;
       --danger: #ef4444;
-      --warning: #f59e0b;
       --text: #f8fafc;
       --text-muted: #94a3b8;
       --radius: 16px;
@@ -157,7 +155,7 @@
     .audio-meter-fill {
       height: 100%;
       width: 0%;
-      background: linear-gradient(90deg, var(--success), var(--warning), var(--danger));
+      background: linear-gradient(90deg, var(--success), var(--accent), var(--danger));
       transition: width 0.08s ease;
       border-radius: 999px;
     }
@@ -224,13 +222,13 @@
   <main>
     <aside class="sidebar">
       <div class="glass panel">
-        <h2><i class="ph ph-broadcast"></i> Presenter Source</h2>
+        <h2><i class="ph ph-broadcast"></i> Host Setup</h2>
         
         <div class="input-field">
-          <label>Your Room ID (Copy to Viewer Device)</label>
+          <label>Your Room ID</label>
           <div style="display: flex; gap: 0.5rem;">
             <input type="text" id="hostRoomId" class="input-box" readonly />
-            <button class="btn btn-secondary" style="width: auto;" onclick="copyRoomId()" title="Copy ID">
+            <button class="btn btn-secondary" style="width: auto;" onclick="copyRoomId()" title="Copy Room ID">
               <i class="ph ph-copy"></i>
             </button>
           </div>
@@ -239,22 +237,17 @@
         <div class="input-field">
           <label>Broadcast Mode</label>
           <select id="sourceType" class="input-box">
-            <option value="camera_mic">Camera + Microphone (Works on PC & Mobile)</option>
-            <option value="screen_mic">Screen Share + Microphone (Desktop/Laptop only)</option>
+            <option value="camera_mic">Camera + Live Microphone</option>
+            <option value="screen_mic">Screen Share + Live Microphone (Desktop)</option>
           </select>
         </div>
 
         <div class="input-field">
-          <label>Microphone Audio Level</label>
+          <label>Microphone Activity (Speak to test)</label>
           <div class="audio-meter">
             <div class="audio-meter-fill" id="hostAudioMeter"></div>
           </div>
         </div>
-
-        <!-- Mute/Unmute Mic Toggle -->
-        <button class="btn btn-secondary" id="toggleMicBtn" onclick="toggleMic()" style="display: none;">
-          <i class="ph-bold ph-microphone" id="micIcon"></i> <span id="micText">Mute Mic</span>
-        </button>
 
         <div style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.5rem;">
           <button class="btn btn-primary" id="startShareBtn" onclick="startBroadcasting()">
@@ -273,7 +266,7 @@
         <div class="stage-placeholder" id="stagePlaceholder">
           <i class="ph ph-video-camera"></i>
           <h3>Stream Inactive</h3>
-          <p>Select your mode and click "Start Broadcasting" with microphone active.</p>
+          <p>Click "Start Broadcasting" to initiate camera and microphone stream.</p>
         </div>
       </div>
     </section>
@@ -283,8 +276,7 @@
 
   <script>
     let peer = null;
-    let combinedStream = null;
-    let micTrack = null;
+    let localStream = null;
     let audioContext = null;
     let analyser = null;
 
@@ -295,9 +287,6 @@
       sourceType: document.getElementById('sourceType'),
       startShareBtn: document.getElementById('startShareBtn'),
       stopShareBtn: document.getElementById('stopShareBtn'),
-      toggleMicBtn: document.getElementById('toggleMicBtn'),
-      micIcon: document.getElementById('micIcon'),
-      micText: document.getElementById('micText'),
       localVideo: document.getElementById('localVideoPreview'),
       stagePlaceholder: document.getElementById('stagePlaceholder'),
       hostAudioMeter: document.getElementById('hostAudioMeter'),
@@ -321,12 +310,12 @@
         dom.hostRoomId.value = id;
         dom.statusDot.className = 'status-dot online';
         dom.statusText.textContent = `Online (${id})`;
-        showToast('Room ID Generated.');
+        showToast('Signaling Ready.');
       });
 
       peer.on('call', (call) => {
-        if (combinedStream) {
-          call.answer(combinedStream);
+        if (localStream) {
+          call.answer(localStream);
           showToast('Viewer connected with Audio/Video!');
         } else {
           call.close();
@@ -337,16 +326,16 @@
     async function startBroadcasting() {
       const mode = dom.sourceType.value;
       try {
-        combinedStream = new MediaStream();
-
-        // 1. Always capture Microphone
+        // 1. Capture Microphone
         const audioStream = await navigator.mediaDevices.getUserMedia({
-          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true
+          }
         });
-        micTrack = audioStream.getAudioTracks()[0];
-        combinedStream.addTrack(micTrack);
 
-        // 2. Capture Video (Camera or Screen)
+        // 2. Capture Video
         let videoStream;
         if (mode === 'camera_mic') {
           videoStream = await navigator.mediaDevices.getUserMedia({
@@ -354,62 +343,42 @@
           });
         } else {
           if (!navigator.mediaDevices.getDisplayMedia) {
-            throw new Error("Screen sharing is only supported on desktop/laptop browsers.");
+            throw new Error("Screen sharing is not supported on this browser/device.");
           }
-          videoStream = await navigator.mediaDevices.getDisplayMedia({
-            video: { frameRate: { ideal: 30 } }
-          });
+          videoStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
         }
 
-        const videoTrack = videoStream.getVideoTracks()[0];
-        combinedStream.addTrack(videoTrack);
+        // 3. Merge Audio and Video into a single multi-track MediaStream
+        localStream = new MediaStream([
+          ...videoStream.getVideoTracks(),
+          ...audioStream.getAudioTracks()
+        ]);
 
-        videoTrack.onended = () => stopBroadcasting();
+        localStream.getVideoTracks()[0].onended = () => stopBroadcasting();
 
-        // Update local preview (muted locally to avoid acoustic feedback)
-        dom.localVideo.srcObject = combinedStream;
+        dom.localVideo.srcObject = localStream;
         dom.stagePlaceholder.style.display = 'none';
-        
         dom.startShareBtn.style.display = 'none';
         dom.stopShareBtn.style.display = 'flex';
-        dom.toggleMicBtn.style.display = 'flex';
         dom.statusDot.className = 'status-dot broadcasting';
         dom.statusText.textContent = 'Broadcasting (Mic Live)';
 
-        initAudioMonitor(combinedStream);
-        showToast('Camera & Microphone are live!');
+        initAudioMonitor(audioStream);
+        showToast('Stream & Microphone active');
       } catch (err) {
-        console.error(err);
-        showToast(err.message || 'Permission denied or failed.');
-      }
-    }
-
-    function toggleMic() {
-      if (!micTrack) return;
-      micTrack.enabled = !micTrack.enabled;
-      if (micTrack.enabled) {
-        dom.micIcon.className = "ph-bold ph-microphone";
-        dom.micText.textContent = "Mute Mic";
-        showToast("Microphone unmuted");
-      } else {
-        dom.micIcon.className = "ph-bold ph-microphone-slash";
-        dom.micText.textContent = "Unmute Mic";
-        dom.hostAudioMeter.style.width = '0%';
-        showToast("Microphone muted");
+        showToast(err.message || 'Media permission failed');
       }
     }
 
     function stopBroadcasting() {
-      if (combinedStream) {
-        combinedStream.getTracks().forEach(t => t.stop());
-        combinedStream = null;
+      if (localStream) {
+        localStream.getTracks().forEach(t => t.stop());
+        localStream = null;
       }
-      micTrack = null;
       dom.localVideo.srcObject = null;
       dom.stagePlaceholder.style.display = 'flex';
       dom.startShareBtn.style.display = 'flex';
       dom.stopShareBtn.style.display = 'none';
-      dom.toggleMicBtn.style.display = 'none';
       dom.statusDot.className = 'status-dot online';
       dom.statusText.textContent = `Online (${dom.hostRoomId.value})`;
       dom.hostAudioMeter.style.width = '0%';
@@ -417,9 +386,10 @@
     }
 
     function initAudioMonitor(stream) {
-      if (!stream.getAudioTracks().length) return;
       try {
         if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioContext.state === 'suspended') audioContext.resume();
+
         const source = audioContext.createMediaStreamSource(stream);
         analyser = audioContext.createAnalyser();
         analyser.fftSize = 64;
@@ -427,7 +397,7 @@
 
         const data = new Uint8Array(analyser.frequencyBinCount);
         const loop = () => {
-          if (!combinedStream || !micTrack || !micTrack.enabled) {
+          if (!localStream) {
             dom.hostAudioMeter.style.width = '0%';
             return;
           }
