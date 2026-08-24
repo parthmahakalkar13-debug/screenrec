@@ -3,9 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Viewer Portal | Blocks Stream</title>
-  
-  <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+  <title>Viewer Portal | Direct WebRTC Stream</title>
   <script src="https://unpkg.com/@phosphor-icons/web"></script>
 
   <style>
@@ -138,7 +136,7 @@
     }
 
     .btn-primary { background: linear-gradient(135deg, var(--accent), var(--primary)); color: #fff; }
-    .btn-warning { background: var(--warning); color: #090d16; font-weight: 700; }
+    .btn-warning { background: var(--warning); color: #090d16; font-weight: 700; margin-top: 0.5rem; }
 
     .stage {
       position: relative;
@@ -195,7 +193,7 @@
     
     <div class="status-badge">
       <div class="status-dot" id="systemStatusDot"></div>
-      <span id="systemStatusText">Connecting...</span>
+      <span id="systemStatusText">Connecting Signaling...</span>
     </div>
   </header>
 
@@ -209,11 +207,11 @@
           <input type="text" id="joinRoomId" class="input-box" placeholder="e.g. cast-d61dcs" />
         </div>
 
-        <button class="btn btn-primary" id="connectBtn" onclick="connectToBroadcast()">
+        <button class="btn btn-primary" id="connectBtn" onclick="joinRoom()">
           <i class="ph-bold ph-link"></i> Join Stream
         </button>
 
-        <button class="btn btn-warning" id="unmuteBtn" onclick="forcePlayAudio()" style="display: none; margin-top: 0.5rem;">
+        <button class="btn btn-warning" id="unmuteBtn" onclick="forcePlayAudio()" style="display: none;">
           <i class="ph-bold ph-speaker-high"></i> Tap to Hear Sound
         </button>
       </div>
@@ -227,7 +225,7 @@
         <div class="stage-placeholder" id="stagePlaceholder">
           <i class="ph ph-television"></i>
           <h3>No Stream Connected</h3>
-          <p>Enter the Android Room ID and click "Join Stream".</p>
+          <p>Start the Android app, enter the Room ID, and click "Join Stream".</p>
         </div>
       </div>
     </section>
@@ -236,8 +234,10 @@
   <div class="toast" id="toast"><span id="toastMsg"></span></div>
 
   <script>
-    let peer = null;
-    let audioContext = null;
+    const SIGNALING_SERVER = "wss://broker.emqx.io:8084/mqtt"; // Public MQTT WebSocket relay for zero-config global signaling
+    let pc = null;
+    let ws = null;
+    let currentRoom = "";
 
     const dom = {
       statusDot: document.getElementById('systemStatusDot'),
@@ -251,90 +251,114 @@
       toastMsg: document.getElementById('toastMsg')
     };
 
-    function initViewer() {
-      peer = new Peer({
-        debug: 1,
-        config: {
-          iceServers: [
-            { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:global.stun.twilio.com:3478' }
-          ]
+    const rtcConfig = {
+      iceServers: [
+        { urls: "stun:stun.l.google.com:19302" },
+        { urls: "stun:global.stun.twilio.com:3478" }
+      ]
+    };
+
+    // Use PieSocket / Public WebSocket Relay for direct SDP and ICE candidate exchange
+    function connectSignaling() {
+      // Connect to free, public WebRTC signaling WebSocket
+      ws = new WebSocket("wss://socketsbay.com/wss/v2/1/demo/");
+
+      ws.onopen = () => {
+        dom.statusDot.className = "status-dot online";
+        dom.statusText.textContent = "Signaling Ready";
+        showToast("Signaling server connected");
+      };
+
+      ws.onmessage = async (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.room !== currentRoom) return;
+
+          if (msg.type === "offer") {
+            handleOffer(msg.sdp);
+          } else if (msg.type === "candidate") {
+            if (pc && pc.remoteDescription) {
+              await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
+            }
+          }
+        } catch (e) {
+          console.warn("Signaling parse error:", e);
         }
-      });
+      };
 
-      peer.on('open', (id) => {
-        dom.statusDot.className = 'status-dot online';
-        dom.statusText.textContent = 'Signaling Connected';
-        showToast('Signaling Ready.');
-      });
+      ws.onerror = () => {
+        dom.statusText.textContent = "Signaling Error";
+      };
     }
 
-    function createDummyMediaStream() {
-      const canvas = document.createElement('canvas');
-      canvas.width = 16;
-      canvas.height = 16;
-      const canvasStream = canvas.captureStream(1);
-      const videoTrack = canvasStream.getVideoTracks()[0];
+    function createPeerConnection() {
+      pc = new RTCPeerConnection(rtcConfig);
 
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
-      const osc = ctx.createOscillator();
-      const dst = ctx.createMediaStreamDestination();
-      const gain = ctx.createGain();
-      gain.gain.value = 0;
-      osc.connect(gain);
-      gain.connect(dst);
-      osc.start();
-      const audioTrack = dst.stream.getAudioTracks()[0];
+      pc.ontrack = (event) => {
+        dom.stagePlaceholder.style.display = "none";
+        if (event.track.kind === "video") {
+          dom.remoteVideo.srcObject = event.streams[0];
+        } else if (event.track.kind === "audio") {
+          dom.remoteAudio.srcObject = event.streams[0];
+          dom.remoteAudio.play().catch(() => {
+            dom.unmuteBtn.style.display = "flex";
+          });
+        }
+        dom.statusDot.className = "status-dot broadcasting";
+        dom.statusText.textContent = "Streaming Live";
+      };
 
-      return new MediaStream([videoTrack, audioTrack]);
+      pc.onicecandidate = (event) => {
+        if (event.candidate && ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({
+            room: currentRoom,
+            type: "candidate",
+            sender: "viewer",
+            candidate: event.candidate
+          }));
+        }
+      };
     }
 
-    function connectToBroadcast() {
-      const targetRoom = dom.joinRoomId.value.trim();
-      if (!targetRoom) {
-        showToast('Please enter a valid Room ID');
+    async function handleOffer(sdp) {
+      createPeerConnection();
+      await pc.setRemoteDescription(new RTCSessionDescription({ type: "offer", sdp: sdp }));
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+
+      ws.send(JSON.stringify({
+        room: currentRoom,
+        type: "answer",
+        sender: "viewer",
+        sdp: answer.sdp
+      }));
+      showToast("Connected to Android Stream!");
+    }
+
+    function joinRoom() {
+      const room = dom.joinRoomId.value.trim();
+      if (!room) {
+        showToast("Enter a valid Room ID");
         return;
       }
+      currentRoom = room;
+      showToast("Waiting for stream from " + room + "...");
 
-      showToast('Connecting to ' + targetRoom + '...');
-
-      const dummyStream = createDummyMediaStream();
-      const call = peer.call(targetRoom, dummyStream);
-
-      call.on('stream', (remoteMediaStream) => {
-        dom.remoteVideo.srcObject = remoteMediaStream;
-        dom.remoteAudio.srcObject = remoteMediaStream;
-        dom.stagePlaceholder.style.display = 'none';
-
-        dom.remoteAudio.play().catch(() => {
-          dom.unmuteBtn.style.display = 'flex';
-          showToast('Tap "Tap to Hear Sound" to unmute');
-        });
-
-        dom.statusDot.className = 'status-dot broadcasting';
-        dom.statusText.textContent = 'Live Feed Connected';
-        showToast('Connected to Android Stream!');
-      });
-
-      call.on('close', () => {
-        dom.remoteVideo.srcObject = null;
-        dom.remoteAudio.srcObject = null;
-        dom.stagePlaceholder.style.display = 'flex';
-        dom.statusDot.className = 'status-dot online';
-        dom.statusText.textContent = 'Signaling Connected';
-        dom.unmuteBtn.style.display = 'none';
-        showToast('Android stream closed');
-      });
+      // Send join request to wake up Android streamer
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+          room: currentRoom,
+          type: "join",
+          sender: "viewer"
+        }));
+      }
     }
 
     function forcePlayAudio() {
-      if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
-      if (audioContext.state === 'suspended') audioContext.resume();
-
       dom.remoteAudio.muted = false;
       dom.remoteAudio.play().then(() => {
-        dom.unmuteBtn.style.display = 'none';
-        showToast('Audio unmuted');
+        dom.unmuteBtn.style.display = "none";
+        showToast("Audio active");
       });
     }
 
@@ -344,7 +368,7 @@
       setTimeout(() => dom.toast.classList.remove('show'), 3500);
     }
 
-    window.addEventListener('DOMContentLoaded', initViewer);
+    window.addEventListener("DOMContentLoaded", connectSignaling);
   </script>
 </body>
 </html>
