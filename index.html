@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Viewer Portal | Direct WebRTC Stream</title>
+  <title>Viewer Portal | Blocks Stream</title>
   <script src="https://unpkg.com/@phosphor-icons/web"></script>
 
   <style>
@@ -234,10 +234,10 @@
   <div class="toast" id="toast"><span id="toastMsg"></span></div>
 
   <script>
-    const SIGNALING_SERVER = "wss://broker.emqx.io:8084/mqtt"; // Public MQTT WebSocket relay for zero-config global signaling
     let pc = null;
     let ws = null;
     let currentRoom = "";
+    let candidateQueue = [];
 
     const dom = {
       statusDot: document.getElementById('systemStatusDot'),
@@ -258,10 +258,9 @@
       ]
     };
 
-    // Use PieSocket / Public WebSocket Relay for direct SDP and ICE candidate exchange
     function connectSignaling() {
-      // Connect to free, public WebRTC signaling WebSocket
-      ws = new WebSocket("wss://socketsbay.com/wss/v2/1/demo/");
+      // Connect to PieSocket public demo cluster
+      ws = new WebSocket("wss://free.blr2.piesocket.com/v3/channel_webrtc_stream?api_key=VC3vmXZkcIGUhRaftc5jHiBGzioUiCAAASPVIgah&notify_self=0");
 
       ws.onopen = () => {
         dom.statusDot.className = "status-dot online";
@@ -274,11 +273,14 @@
           const msg = JSON.parse(event.data);
           if (msg.room !== currentRoom) return;
 
-          if (msg.type === "offer") {
-            handleOffer(msg.sdp);
-          } else if (msg.type === "candidate") {
+          if (msg.type === "offer" && msg.sender === "android") {
+            await handleOffer(msg.sdp);
+          } else if (msg.type === "candidate" && msg.sender === "android") {
+            const cand = new RTCIceCandidate(msg.candidate);
             if (pc && pc.remoteDescription) {
-              await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
+              await pc.addIceCandidate(cand);
+            } else {
+              candidateQueue.push(cand);
             }
           }
         } catch (e) {
@@ -287,12 +289,20 @@
       };
 
       ws.onerror = () => {
-        dom.statusText.textContent = "Signaling Error";
+        dom.statusText.textContent = "Signaling Disconnected";
+      };
+
+      ws.onclose = () => {
+        setTimeout(connectSignaling, 3000);
       };
     }
 
     function createPeerConnection() {
+      if (pc) {
+        pc.close();
+      }
       pc = new RTCPeerConnection(rtcConfig);
+      candidateQueue = [];
 
       pc.ontrack = (event) => {
         dom.stagePlaceholder.style.display = "none";
@@ -314,7 +324,12 @@
             room: currentRoom,
             type: "candidate",
             sender: "viewer",
-            candidate: event.candidate
+            candidate: {
+              sdp: event.candidate.candidate,
+              sdpMid: event.candidate.sdpMid,
+              sdpMLineIndex: event.candidate.sdpMLineIndex,
+              candidate: event.candidate.candidate
+            }
           }));
         }
       };
@@ -323,6 +338,11 @@
     async function handleOffer(sdp) {
       createPeerConnection();
       await pc.setRemoteDescription(new RTCSessionDescription({ type: "offer", sdp: sdp }));
+      
+      while (candidateQueue.length > 0) {
+        await pc.addIceCandidate(candidateQueue.shift());
+      }
+
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
 
@@ -342,9 +362,8 @@
         return;
       }
       currentRoom = room;
-      showToast("Waiting for stream from " + room + "...");
+      showToast("Requesting stream from " + room + "...");
 
-      // Send join request to wake up Android streamer
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({
           room: currentRoom,
