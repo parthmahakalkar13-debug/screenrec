@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Viewer Portal | CastWave RTC</title>
+  <title>Viewer Portal | Blocks Stream</title>
   
   <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
   <script src="https://unpkg.com/@phosphor-icons/web"></script>
@@ -138,34 +138,7 @@
     }
 
     .btn-primary { background: linear-gradient(135deg, var(--accent), var(--primary)); color: #fff; }
-    .btn-warning {
-      background: var(--warning);
-      color: #090d16;
-      font-weight: 700;
-      animation: pulse-warn 1.5s infinite;
-    }
-
-    @keyframes pulse-warn {
-      0%, 100% { transform: scale(1); }
-      50% { transform: scale(1.02); }
-    }
-
-    .audio-meter {
-      height: 8px;
-      width: 100%;
-      background: rgba(0, 0, 0, 0.4);
-      border-radius: 999px;
-      overflow: hidden;
-      border: 1px solid var(--surface-border);
-    }
-
-    .audio-meter-fill {
-      height: 100%;
-      width: 0%;
-      background: linear-gradient(90deg, var(--success), var(--accent), var(--danger));
-      transition: width 0.08s ease;
-      border-radius: 999px;
-    }
+    .btn-warning { background: var(--warning); color: #090d16; font-weight: 700; }
 
     .stage {
       position: relative;
@@ -217,7 +190,7 @@
   <header>
     <div class="brand">
       <div class="brand-icon"><i class="ph-bold ph-eye"></i></div>
-      <span>CastWave <span style="color: var(--accent);">Viewer</span></span>
+      <span>Blocks <span style="color: var(--accent);">Stream Portal</span></span>
     </div>
     
     <div class="status-badge">
@@ -229,41 +202,32 @@
   <main>
     <aside class="sidebar">
       <div class="glass panel">
-        <h2><i class="ph ph-plug"></i> Connect to Feed</h2>
+        <h2><i class="ph ph-plug"></i> Connect to Android App</h2>
         
         <div class="input-field">
-          <label>Presenter Room ID</label>
-          <input type="text" id="joinRoomId" class="input-box" placeholder="e.g. cast-984210" />
+          <label>Android App Room ID</label>
+          <input type="text" id="joinRoomId" class="input-box" placeholder="e.g. cast-d61dcs" />
         </div>
 
         <button class="btn btn-primary" id="connectBtn" onclick="connectToBroadcast()">
           <i class="ph-bold ph-link"></i> Join Stream
         </button>
 
-        <!-- Tap to unmute / activate mobile audio element -->
-        <button class="btn btn-warning" id="unmuteBtn" onclick="forcePlayAudio()" style="display: none;">
-          <i class="ph-bold ph-speaker-high"></i> Tap to Hear Audio
+        <button class="btn btn-warning" id="unmuteBtn" onclick="forcePlayAudio()" style="display: none; margin-top: 0.5rem;">
+          <i class="ph-bold ph-speaker-high"></i> Tap to Hear Sound
         </button>
-
-        <div class="input-field" style="margin-top: 0.5rem;">
-          <label>Incoming Presenter Mic Level</label>
-          <div class="audio-meter">
-            <div class="audio-meter-fill" id="viewerAudioMeter"></div>
-          </div>
-        </div>
       </div>
     </aside>
 
     <section>
       <div class="stage">
         <video id="remoteVideo" autoplay playsinline></video>
-        <!-- Dedicated invisible audio output tag for mobile engines -->
         <audio id="remoteAudio" autoplay playsinline></audio>
 
         <div class="stage-placeholder" id="stagePlaceholder">
           <i class="ph ph-television"></i>
           <h3>No Stream Connected</h3>
-          <p>Enter the Room ID from the presenter and tap "Join Stream".</p>
+          <p>Enter the Android Room ID and click "Join Stream".</p>
         </div>
       </div>
     </section>
@@ -274,8 +238,6 @@
   <script>
     let peer = null;
     let audioContext = null;
-    let analyser = null;
-    let receivedStream = null;
 
     const dom = {
       statusDot: document.getElementById('systemStatusDot'),
@@ -284,7 +246,6 @@
       remoteVideo: document.getElementById('remoteVideo'),
       remoteAudio: document.getElementById('remoteAudio'),
       stagePlaceholder: document.getElementById('stagePlaceholder'),
-      viewerAudioMeter: document.getElementById('viewerAudioMeter'),
       unmuteBtn: document.getElementById('unmuteBtn'),
       toast: document.getElementById('toast'),
       toastMsg: document.getElementById('toastMsg')
@@ -303,25 +264,23 @@
 
       peer.on('open', (id) => {
         dom.statusDot.className = 'status-dot online';
-        dom.statusText.textContent = 'Ready to Join';
-        showToast('Signaling connected.');
+        dom.statusText.textContent = 'Signaling Connected';
+        showToast('Signaling Ready.');
       });
     }
 
     function createDummyMediaStream() {
-      // 1. Dummy video track
       const canvas = document.createElement('canvas');
       canvas.width = 16;
       canvas.height = 16;
       const canvasStream = canvas.captureStream(1);
       const videoTrack = canvasStream.getVideoTracks()[0];
 
-      // 2. Dummy silent audio track (crucial for WebRTC bidirectional audio negotiation)
       const ctx = new (window.AudioContext || window.webkitAudioContext)();
       const osc = ctx.createOscillator();
       const dst = ctx.createMediaStreamDestination();
       const gain = ctx.createGain();
-      gain.gain.value = 0; // 100% silent
+      gain.gain.value = 0;
       osc.connect(gain);
       gain.connect(dst);
       osc.start();
@@ -337,38 +296,24 @@
         return;
       }
 
-      showToast('Calling room ' + targetRoom + '...');
+      showToast('Connecting to ' + targetRoom + '...');
 
-      // Initiate call with dummy audio+video stream so SDP negotiates both channels
       const dummyStream = createDummyMediaStream();
       const call = peer.call(targetRoom, dummyStream);
 
       call.on('stream', (remoteMediaStream) => {
-        receivedStream = remoteMediaStream;
-        
-        // Attach to elements
         dom.remoteVideo.srcObject = remoteMediaStream;
         dom.remoteAudio.srcObject = remoteMediaStream;
         dom.stagePlaceholder.style.display = 'none';
 
-        // Check if audio tracks exist
-        const audioTracks = remoteMediaStream.getAudioTracks();
-        if (audioTracks.length > 0) {
-          audioTracks[0].enabled = true;
-          initAudioMonitor(remoteMediaStream);
-        }
-
-        // Handle mobile browser autoplay restriction
-        dom.remoteAudio.play().then(() => {
-          dom.unmuteBtn.style.display = 'none';
-        }).catch(() => {
+        dom.remoteAudio.play().catch(() => {
           dom.unmuteBtn.style.display = 'flex';
-          showToast('Tap "Tap to Hear Audio" to enable sound');
+          showToast('Tap "Tap to Hear Sound" to unmute');
         });
 
         dom.statusDot.className = 'status-dot broadcasting';
-        dom.statusText.textContent = 'Receiving Stream';
-        showToast('Stream & Audio Connected');
+        dom.statusText.textContent = 'Live Feed Connected';
+        showToast('Connected to Android Stream!');
       });
 
       call.on('close', () => {
@@ -376,10 +321,9 @@
         dom.remoteAudio.srcObject = null;
         dom.stagePlaceholder.style.display = 'flex';
         dom.statusDot.className = 'status-dot online';
-        dom.statusText.textContent = 'Ready to Join';
+        dom.statusText.textContent = 'Signaling Connected';
         dom.unmuteBtn.style.display = 'none';
-        dom.viewerAudioMeter.style.width = '0%';
-        showToast('Presenter ended stream');
+        showToast('Android stream closed');
       });
     }
 
@@ -388,39 +332,10 @@
       if (audioContext.state === 'suspended') audioContext.resume();
 
       dom.remoteAudio.muted = false;
-      dom.remoteVideo.muted = false;
-      
       dom.remoteAudio.play().then(() => {
         dom.unmuteBtn.style.display = 'none';
-        showToast('Sound active!');
-      }).catch(e => {
-        console.error("Audio trigger error: ", e);
+        showToast('Audio unmuted');
       });
-    }
-
-    function initAudioMonitor(stream) {
-      if (!stream.getAudioTracks().length) return;
-      try {
-        if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        if (audioContext.state === 'suspended') audioContext.resume();
-
-        const source = audioContext.createMediaStreamSource(stream);
-        analyser = audioContext.createAnalyser();
-        analyser.fftSize = 64;
-        source.connect(analyser);
-
-        const data = new Uint8Array(analyser.frequencyBinCount);
-        const loop = () => {
-          if (!receivedStream) { dom.viewerAudioMeter.style.width = '0%'; return; }
-          analyser.getByteFrequencyData(data);
-          let sum = 0;
-          for (let i = 0; i < data.length; i++) sum += data[i];
-          let pct = Math.min(100, Math.round(((sum / data.length) / 128) * 100));
-          dom.viewerAudioMeter.style.width = pct + '%';
-          requestAnimationFrame(loop);
-        };
-        loop();
-      } catch (e) { console.warn(e); }
     }
 
     function showToast(msg) {
