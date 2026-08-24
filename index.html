@@ -17,7 +17,6 @@
       --accent: #06b6d4;
       --success: #10b981;
       --warning: #f59e0b;
-      --danger: #ef4444;
       --text: #f8fafc;
       --text-muted: #94a3b8;
       --radius: 16px;
@@ -139,7 +138,17 @@
     }
 
     .btn-primary { background: linear-gradient(135deg, var(--accent), var(--primary)); color: #fff; }
-    .btn-warning { background: var(--warning); color: #000; font-weight: 700; }
+    .btn-warning {
+      background: var(--warning);
+      color: #090d16;
+      font-weight: 700;
+      animation: pulse-warn 1.5s infinite;
+    }
+
+    @keyframes pulse-warn {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.02); }
+    }
 
     .audio-meter {
       height: 8px;
@@ -153,7 +162,7 @@
     .audio-meter-fill {
       height: 100%;
       width: 0%;
-      background: linear-gradient(90deg, var(--success), var(--warning), var(--danger));
+      background: linear-gradient(90deg, var(--success), var(--accent), var(--danger));
       transition: width 0.08s ease;
       border-radius: 999px;
     }
@@ -231,8 +240,9 @@
           <i class="ph-bold ph-link"></i> Join Stream
         </button>
 
-        <button class="btn btn-warning" id="unmuteBtn" onclick="enableAudio()" style="display: none;">
-          <i class="ph-bold ph-speaker-high"></i> Tap to Enable Sound
+        <!-- Tap to unmute / activate mobile audio element -->
+        <button class="btn btn-warning" id="unmuteBtn" onclick="forcePlayAudio()" style="display: none;">
+          <i class="ph-bold ph-speaker-high"></i> Tap to Hear Audio
         </button>
 
         <div class="input-field" style="margin-top: 0.5rem;">
@@ -247,6 +257,9 @@
     <section>
       <div class="stage">
         <video id="remoteVideo" autoplay playsinline></video>
+        <!-- Dedicated invisible audio output tag for mobile engines -->
+        <audio id="remoteAudio" autoplay playsinline></audio>
+
         <div class="stage-placeholder" id="stagePlaceholder">
           <i class="ph ph-television"></i>
           <h3>No Stream Connected</h3>
@@ -262,12 +275,14 @@
     let peer = null;
     let audioContext = null;
     let analyser = null;
+    let receivedStream = null;
 
     const dom = {
       statusDot: document.getElementById('systemStatusDot'),
       statusText: document.getElementById('systemStatusText'),
       joinRoomId: document.getElementById('joinRoomId'),
       remoteVideo: document.getElementById('remoteVideo'),
+      remoteAudio: document.getElementById('remoteAudio'),
       stagePlaceholder: document.getElementById('stagePlaceholder'),
       viewerAudioMeter: document.getElementById('viewerAudioMeter'),
       unmuteBtn: document.getElementById('unmuteBtn'),
@@ -289,8 +304,30 @@
       peer.on('open', (id) => {
         dom.statusDot.className = 'status-dot online';
         dom.statusText.textContent = 'Ready to Join';
-        showToast('Connected to Signaling Server');
+        showToast('Signaling connected.');
       });
+    }
+
+    function createDummyMediaStream() {
+      // 1. Dummy video track
+      const canvas = document.createElement('canvas');
+      canvas.width = 16;
+      canvas.height = 16;
+      const canvasStream = canvas.captureStream(1);
+      const videoTrack = canvasStream.getVideoTracks()[0];
+
+      // 2. Dummy silent audio track (crucial for WebRTC bidirectional audio negotiation)
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const dst = ctx.createMediaStreamDestination();
+      const gain = ctx.createGain();
+      gain.gain.value = 0; // 100% silent
+      osc.connect(gain);
+      gain.connect(dst);
+      osc.start();
+      const audioTrack = dst.stream.getAudioTracks()[0];
+
+      return new MediaStream([videoTrack, audioTrack]);
     }
 
     function connectToBroadcast() {
@@ -300,37 +337,43 @@
         return;
       }
 
-      showToast('Connecting to ' + targetRoom + '...');
+      showToast('Calling room ' + targetRoom + '...');
 
-      // Send empty canvas placeholder stream to initiate WebRTC call
-      const canvas = document.createElement('canvas');
-      canvas.width = 10; canvas.height = 10;
-      const dummyStream = canvas.captureStream(1);
-
+      // Initiate call with dummy audio+video stream so SDP negotiates both channels
+      const dummyStream = createDummyMediaStream();
       const call = peer.call(targetRoom, dummyStream);
 
       call.on('stream', (remoteMediaStream) => {
+        receivedStream = remoteMediaStream;
+        
+        // Attach to elements
         dom.remoteVideo.srcObject = remoteMediaStream;
+        dom.remoteAudio.srcObject = remoteMediaStream;
         dom.stagePlaceholder.style.display = 'none';
 
-        // Attempt autoplay with audio
-        dom.remoteVideo.play().then(() => {
+        // Check if audio tracks exist
+        const audioTracks = remoteMediaStream.getAudioTracks();
+        if (audioTracks.length > 0) {
+          audioTracks[0].enabled = true;
+          initAudioMonitor(remoteMediaStream);
+        }
+
+        // Handle mobile browser autoplay restriction
+        dom.remoteAudio.play().then(() => {
           dom.unmuteBtn.style.display = 'none';
         }).catch(() => {
-          // If mobile browser blocks audio autoplay, show unmute button
           dom.unmuteBtn.style.display = 'flex';
-          showToast('Tap "Tap to Enable Sound" to hear presenter');
+          showToast('Tap "Tap to Hear Audio" to enable sound');
         });
 
-        initAudioMonitor(remoteMediaStream);
-
         dom.statusDot.className = 'status-dot broadcasting';
-        dom.statusText.textContent = 'Receiving Live Mic & Video';
+        dom.statusText.textContent = 'Receiving Stream';
         showToast('Stream & Audio Connected');
       });
 
       call.on('close', () => {
         dom.remoteVideo.srcObject = null;
+        dom.remoteAudio.srcObject = null;
         dom.stagePlaceholder.style.display = 'flex';
         dom.statusDot.className = 'status-dot online';
         dom.statusText.textContent = 'Ready to Join';
@@ -340,20 +383,27 @@
       });
     }
 
-    function enableAudio() {
+    function forcePlayAudio() {
+      if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      if (audioContext.state === 'suspended') audioContext.resume();
+
+      dom.remoteAudio.muted = false;
       dom.remoteVideo.muted = false;
-      dom.remoteVideo.play();
-      dom.unmuteBtn.style.display = 'none';
-      if (audioContext && audioContext.state === 'suspended') {
-        audioContext.resume();
-      }
-      showToast('Sound enabled');
+      
+      dom.remoteAudio.play().then(() => {
+        dom.unmuteBtn.style.display = 'none';
+        showToast('Sound active!');
+      }).catch(e => {
+        console.error("Audio trigger error: ", e);
+      });
     }
 
     function initAudioMonitor(stream) {
       if (!stream.getAudioTracks().length) return;
       try {
         if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioContext.state === 'suspended') audioContext.resume();
+
         const source = audioContext.createMediaStreamSource(stream);
         analyser = audioContext.createAnalyser();
         analyser.fftSize = 64;
@@ -361,7 +411,7 @@
 
         const data = new Uint8Array(analyser.frequencyBinCount);
         const loop = () => {
-          if (!stream.active) { dom.viewerAudioMeter.style.width = '0%'; return; }
+          if (!receivedStream) { dom.viewerAudioMeter.style.width = '0%'; return; }
           analyser.getByteFrequencyData(data);
           let sum = 0;
           for (let i = 0; i < data.length; i++) sum += data[i];
